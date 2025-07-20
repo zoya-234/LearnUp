@@ -1,5 +1,4 @@
 import streamlit as st
-import re
 from prompts import (
     get_input_prompt,
     get_task_plan_prompt,
@@ -9,10 +8,12 @@ from prompts import (
 from utils import get_openai_response
 
 st.set_page_config(page_title="LearnUp!", page_icon="📘")
-st.title("📘 LearnUp! – Your Exam Revision AI Agent")
 
-if "chat_history" not in st.session_state:
-    st.session_state.chat_history = []
+st.title("📘 LearnUp! – Your Exam Revision AI Chatbot")
+
+# Session state for messages
+if "messages" not in st.session_state:
+    st.session_state.messages = []
 
 if "last_topic" not in st.session_state:
     st.session_state.last_topic = ""
@@ -20,50 +21,50 @@ if "last_topic" not in st.session_state:
 if "last_quiz" not in st.session_state:
     st.session_state.last_quiz = ""
 
-user_input = st.text_input("Ask a revision question (e.g., 'Quiz me on photosynthesis'):")
+# Display chat history
+for msg in st.session_state.messages:
+    with st.chat_message(msg["role"]):
+        st.markdown(msg["content"])
 
-if st.button("Submit"):
-    if user_input:
-        # 1. Understand user input intent and topic
-        input_prompt = get_input_prompt(user_input)
-        parsed = get_openai_response(input_prompt, expect_json=True)
-        topic = parsed.get("topic", user_input)
-        intent = parsed.get("intent", "summary").lower()
-        st.session_state.last_topic = topic
+# Chat input
+user_input = st.chat_input("Ask me something (e.g., 'Quiz me on photosynthesis')")
 
-        # 2. Based on intent, handle quiz or general prompt
-        if "quiz" in intent:
-            final_prompt = get_output_prompt(topic, intent, "")
-            output = get_openai_response(final_prompt)
-            st.session_state.last_quiz = output
-        else:
-            plan_prompt = get_task_plan_prompt(topic, intent)
-            task_plan = get_openai_response(plan_prompt)
-            final_prompt = get_output_prompt(topic, intent, task_plan)
-            output = get_openai_response(final_prompt)
+if user_input:
+    # Show user message
+    st.session_state.messages.append({"role": "user", "content": user_input})
+    with st.chat_message("user"):
+        st.markdown(user_input)
 
-        st.session_state.chat_history.append((user_input, output))
+    # Handle intent + response
+    input_prompt = get_input_prompt(user_input)
+    parsed = get_openai_response(input_prompt, expect_json=True)
 
-# Show conversation history
-for q, a in reversed(st.session_state.chat_history):
-    st.markdown(f"**🧑 You:** {q}")
-    st.markdown(f"**🤖 LearnUp:** {a}")
+    topic = parsed.get("topic", user_input)
+    intent = parsed.get("intent", "summary").lower()
+    st.session_state.last_topic = topic
 
+    # Handle quiz or summary
+    if "quiz" in intent:
+        final_prompt = get_output_prompt(topic, intent, "")
+        output = get_openai_response(final_prompt)
+        st.session_state.last_quiz = output
+    else:
+        plan_prompt = get_task_plan_prompt(topic, intent)
+        task_plan = get_openai_response(plan_prompt)
+        final_prompt = get_output_prompt(topic, intent, task_plan)
+        output = get_openai_response(final_prompt)
 
-# If there's a quiz in memory, allow showing answers
+    # Show bot response
+    st.session_state.messages.append({"role": "assistant", "content": output})
+    with st.chat_message("assistant"):
+        st.markdown(output)
+
+# Option to show quiz answers
 if st.session_state.last_quiz:
-    if st.button("Show Answers"):
+    with st.expander("✅ Show Quiz Answers"):
         answer_prompt = get_quiz_answers_prompt(
             st.session_state.last_quiz, st.session_state.last_topic
-    )
-    raw_answers = get_openai_response(answer_prompt)
-
-    # Add spacing between questions and answers using Markdown formatting
-    formatted_answers = re.sub(r'(?<=\d\.)', '\n', raw_answers)  # newline after question number
-    formatted_answers = re.sub(r'(?<=\))(?=\s)', '\n', formatted_answers)  # newline after option label
-    formatted_answers = re.sub(r'Answer:', '\n**✅ Answer:**', formatted_answers)  # bold answer label
-    formatted_answers = formatted_answers.strip()
-
-    st.markdown("### ✅ Quiz Answers:")
-    st.markdown(formatted_answers, unsafe_allow_html=True)
-
+        )
+        raw_answers = get_openai_response(answer_prompt)
+        formatted = raw_answers.replace("\n", "\n\n")
+        st.markdown(formatted)
